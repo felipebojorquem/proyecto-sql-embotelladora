@@ -264,8 +264,18 @@ WHERE v.minutos_txt IS NOT NULL;
 COMMIT;
 
 -- =============================================================================
--- 5. Demostración de ROLLBACK ante validación fallida (transacción con propósito).
+-- 5. Transacciones con propósito.
 -- =============================================================================
+
+-- 5a. ROLLBACK explícito: aplicamos una corrección de prueba, la verificaríamos
+--     y decidimos NO persistirla. El ciclo BEGIN/.../ROLLBACK deja fact_lotes
+--     exactamente igual que antes (ningún cambio queda confirmado).
+BEGIN;
+    UPDATE fact_lotes SET duracion_min = duracion_min + 100;  -- cambio hipotético no deseado
+ROLLBACK;                                                     -- se descarta: duracion_min intacta
+
+-- 5b. Rollback implícito ante validación fallida: el CHECK rechaza el outlier 999.
+--     El bloque atrapa la excepción para que el script continúe sin abortar.
 DO $$
 BEGIN
     INSERT INTO fact_paros (lote_id, factor_id, minutos) VALUES (422111, 7, 999);
