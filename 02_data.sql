@@ -1,13 +1,10 @@
 -- =============================================================================
 -- 02_data.sql — Proyecto Final SQL: carga de datos y limpieza
 -- Motor: PostgreSQL 15. Ejecutar DESPUÉS de 01_schema.sql.
--- Estrategia: carga por código (INSERT INTO) → staging como TEXT → transformación
---             con CAST, limpieza (nulos/duplicados/tipos/integridad) y transacciones.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- 0. Idempotencia: vaciar destino y recrear staging (re-ejecutable sin 01).
---    Se truncan primero los hechos (dependen por FK de las dimensiones).
+-- 0. Idempotencia: limpieza de staging y hechos (reinicio de secuencias).
 -- -----------------------------------------------------------------------------
 TRUNCATE fact_paros, fact_lotes RESTART IDENTITY;
 TRUNCATE dim_calendario, dim_producto, dim_operador, dim_turno, dim_factor_paro RESTART IDENTITY CASCADE;
@@ -17,7 +14,7 @@ DROP TABLE IF EXISTS stg_productos;
 DROP TABLE IF EXISTS stg_factores;
 DROP TABLE IF EXISTS stg_downtime;
 
--- Staging: TODO como TEXT a propósito → simula la carga cruda de un CSV y obliga
+-- Staging: TODO como TEXT → simula la carga cruda de un CSV y obliga
 -- a una conversión de tipos explícita (CAST) al pasar al modelo dimensional.
 CREATE TABLE stg_productividad (
     fecha_txt    TEXT, producto_txt TEXT, lote_txt TEXT,
@@ -39,7 +36,7 @@ CREATE TABLE stg_downtime (                 -- formato ANCHO (1 columna por fact
 -- 1. Carga cruda en staging (valores reales del dataset, embebidos por código)
 -- =============================================================================
 
--- ===== stg_productividad (31 filas) =====
+-- stg_productividad (31 filas)
 INSERT INTO stg_productividad (fecha_txt, producto_txt, lote_txt, operador_txt, inicio_txt, fin_txt) VALUES
 ('2024-08-29','OR-600','422111','Mac','11:50:00','14:05:00'),
 ('2024-08-29','LE-600','422112','Mac','14:05:00','15:45:00'),
@@ -73,7 +70,7 @@ INSERT INTO stg_productividad (fecha_txt, producto_txt, lote_txt, operador_txt, 
 ('2024-09-02','CO-2L','422147','Charlie','19:30:00','22:55:00'),
 ('2024-09-03','CO-2L','422148','Mac','22:55:00','1900-01-01 01:05:00'); -- fin cruza medianoche (fecha basura)
 
--- ===== stg_productos (5) =====
+-- stg_productos (5) 
 INSERT INTO stg_productos (producto_txt, sabor_txt, tamano_txt, min_batch_txt) VALUES
 ('OR-600','Orange','600 ml','60'),
 ('LE-600','Lemon lime','600 ml','60'),
@@ -81,7 +78,7 @@ INSERT INTO stg_productos (producto_txt, sabor_txt, tamano_txt, min_batch_txt) V
 ('DC-600','Diet Cola','600 ml','60'),
 ('CO-2L','Cola','2 L','98');
 
--- ===== stg_factores (12) =====
+-- stg_factores (12)
 INSERT INTO stg_factores (factor_txt, descripcion_txt, error_operador_txt) VALUES
 ('1','Emergency stop','No'),
 ('2','Batch change','Yes'),
@@ -96,8 +93,8 @@ INSERT INTO stg_factores (factor_txt, descripcion_txt, error_operador_txt) VALUE
 ('11','Label switch','Yes'),
 ('12','Other','No');
 
--- ===== stg_downtime (38 filas, formato ancho; los lotes 422137-422143 son
---       huérfanos: tienen paros pero NO existen en productividad) =====
+-- stg_downtime (38 filas, formato ancho; los lotes 422137-422143 son
+--       huérfanos: tienen paros pero NO existen en productividad)
 INSERT INTO stg_downtime (lote_txt,f1_txt,f2_txt,f3_txt,f4_txt,f5_txt,f6_txt,f7_txt,f8_txt,f9_txt,f10_txt,f11_txt,f12_txt) VALUES
 ('422111',NULL,'60.0',NULL,NULL,NULL,NULL,'15.0',NULL,NULL,NULL,NULL,NULL),
 ('422112',NULL,'20.0',NULL,NULL,NULL,NULL,NULL,'20.0',NULL,NULL,NULL,NULL),
@@ -139,9 +136,7 @@ INSERT INTO stg_downtime (lote_txt,f1_txt,f2_txt,f3_txt,f4_txt,f5_txt,f6_txt,f7_
 ('422148',NULL,NULL,NULL,'25.0',NULL,NULL,NULL,'7.0',NULL,NULL,NULL,NULL);
 
 -- =============================================================================
--- 2. ERRORES SEMBRADOS (el dataset real ya trae anomalías de tipo/integridad;
---    aquí inyectamos las dos que faltan para ejercitar nulos y duplicados).
---    Quedan marcados para poder defenderlos en la presentación.
+-- 2. ERRORES SEMBRADOS:
 -- =============================================================================
 -- 2a. Nulos: 3 lotes pierden el operador (registro sin login en planta).
 UPDATE stg_productividad SET operador_txt = NULL
@@ -152,12 +147,11 @@ INSERT INTO stg_productividad
 SELECT * FROM stg_productividad WHERE lote_txt IN ('422111','422120');
 
 -- =============================================================================
--- 3. CARGA DE DIMENSIONES (destino de las FK → antes que los hechos)
+-- 3. CARGA DE DIMENSIONES
 -- =============================================================================
 
 -- dim_calendario: generada con generate_series sobre 2 semanas completas que
--- cubren el periodo (no solo los días observados). Calendario completo a
--- propósito → permite detectar días laborables SIN producción (03_eda q3).
+-- cubren el periodo (no solo los días observados). 
 INSERT INTO dim_calendario (fecha_id, fecha, dia_semana, semana, mes, anio, es_laborable)
 SELECT
     TO_CHAR(d, 'YYYYMMDD')::INT,
@@ -169,8 +163,7 @@ SELECT
     EXTRACT(dow FROM d) NOT IN (0, 6)            -- domingo(0)/sábado(6) → no laborable
 FROM generate_series(DATE '2024-08-26', DATE '2024-09-08', INTERVAL '1 day') AS g(d);
 
--- dim_producto: surrogate (IDENTITY) + código de negocio como UNIQUE. CAST del
--- tiempo estándar de TEXT a INT.
+-- dim_producto: surrogate (IDENTITY) + código de negocio como UNIQUE. 
 INSERT INTO dim_producto (codigo, sabor, tamano, min_batch_time)
 SELECT producto_txt, sabor_txt, tamano_txt, min_batch_txt::INT
 FROM stg_productos;
@@ -180,8 +173,7 @@ INSERT INTO dim_factor_paro (factor_id, descripcion, es_error_operador)
 SELECT factor_txt::INT, descripcion_txt, (error_operador_txt = 'Yes')
 FROM stg_factores;
 
--- dim_operador: centinela -1 (SIN_ASIGNAR) + operadores reales. especialidad y
--- fecha_ingreso son enriquecimiento propio (sintético, declarado como tal).
+-- dim_operador: centinela -1 (SIN_ASIGNAR) + operadores reales. 
 INSERT INTO dim_operador (operador_id, nombre, especialidad, fecha_ingreso) VALUES
 (-1, 'SIN_ASIGNAR', NULL,                  NULL),
 ( 1, 'Mac',         'Operador de línea',   DATE '2021-03-15'),
@@ -196,7 +188,7 @@ INSERT INTO dim_turno (turno_id, nombre, hora_inicio, hora_fin) VALUES
 (3, 'Noche',  TIME '22:00', TIME '06:00');
 
 -- =============================================================================
--- 4. CARGA DE HECHOS (dentro de transacción)
+-- 4. CARGA DE HECHOS
 -- =============================================================================
 
 BEGIN;
@@ -204,7 +196,6 @@ BEGIN;
 -- fact_lotes: limpieza + transformación en CTEs encadenadas:
 --   dedup  → elimina los duplicados sembrados con ROW_NUMBER (se queda rn=1)
 --   base   → CAST de fecha/horas; reconstruye hora_fin tomando solo HH:MM:SS
---            (right(fin_txt,8)) para neutralizar la fecha basura '1900-01-01'
 --   fix    → corrige el cruce de medianoche (+1 día si fin <= inicio)
 WITH dedup AS (
     SELECT *, ROW_NUMBER() OVER (PARTITION BY lote_txt ORDER BY lote_txt) AS rn
@@ -274,8 +265,6 @@ COMMIT;
 
 -- =============================================================================
 -- 5. Demostración de ROLLBACK ante validación fallida (transacción con propósito).
---    El DO ejecuta en una subtransacción: la inserción inválida (minutos=999
---    viola el CHECK) se revierte automáticamente sin abortar el script.
 -- =============================================================================
 DO $$
 BEGIN
@@ -286,10 +275,6 @@ EXCEPTION WHEN check_violation THEN
 END $$;
 
 -- =============================================================================
--- 6. Refrescar la vista materializada (se creó vacía en 01_schema.sql)
+-- 6. Refrescar la vista materializada
 -- =============================================================================
 REFRESH MATERIALIZED VIEW v_pareto_paros;
-
--- =============================================================================
--- Fin de 02_data.sql
--- =============================================================================

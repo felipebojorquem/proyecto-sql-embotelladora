@@ -1,40 +1,31 @@
 -- =============================================================================
 -- 03_eda.sql — Proyecto Final SQL: limpieza (verificación), EDA y análisis
 -- Motor: PostgreSQL 15. Ejecutar DESPUÉS de 01_schema.sql y 02_data.sql.
--- Este es el CORE del entregable: detección de calidad + perfil descriptivo +
--- 10 consultas de negocio, cada una comentada con el insight que aporta.
--- (La CORRECCIÓN de los problemas se hizo en 02_data.sql; aquí los DETECTAMOS
---  sobre la capa staging cruda para evidenciar las técnicas.)
 -- =============================================================================
 
 
 -- #############################################################################
--- SECCIÓN A — CALIDAD DE DATOS (detección sobre staging crudo)
+-- SECCIÓN A — CALIDAD DE DATOS
 -- #############################################################################
 
--- A1. NULOS: lotes sin operador en el dato crudo (luego → centinela -1 en 02).
---     Insight: medir el % de registros sin login antes de imputar.
+-- A1. NULOS: 
 SELECT COUNT(*) AS lotes_sin_operador
 FROM stg_productividad
 WHERE operador_txt IS NULL;
 
--- A2. DUPLICADOS: detección con GROUP BY + COUNT(*) (regla: lote_txt es único).
---     Insight: el nº de batch debe ser único; aquí afloran los registros dobles.
+-- A2. DUPLICADOS: 
 SELECT lote_txt, COUNT(*) AS repeticiones
 FROM stg_productividad
 GROUP BY lote_txt
 HAVING COUNT(*) > 1
 ORDER BY lote_txt;
 
--- A3. TIPOS/FECHAS INCORRECTAS: el fin de lote debería ser 'HH:MM:SS' (8 chars).
---     Insight: detecta el lote cuyo fin trae fecha basura '1900-01-01 ...'
---     (cruce de medianoche), corregido en 02 con RIGHT(fin_txt,8).
+-- A3. TIPOS/FECHAS INCORRECTAS: 
 SELECT lote_txt, fin_txt
 FROM stg_productividad
 WHERE LENGTH(fin_txt) <> 8;
 
--- A4. INTEGRIDAD REFERENCIAL: lotes con paros pero sin registro de producción.
---     Insight: huérfanos 422137-422143 → excluidos de fact_paros en 02 (LEFT JOIN + IS NULL).
+-- A4. INTEGRIDAD REFERENCIAL: 
 SELECT s.lote_txt AS lote_huerfano
 FROM stg_downtime s
 LEFT JOIN stg_productividad pr ON pr.lote_txt = s.lote_txt
@@ -49,8 +40,6 @@ ORDER BY s.lote_txt;
 
 -- -----------------------------------------------------------------------------
 -- Q1. PERFIL DE DATOS del modelo limpio: volumen, rango temporal, % sin operador.
---     Técnicas: COUNT, MIN/MAX, agregación con FILTER.
---     Insight: tamaño y cobertura del dataset, y qué fracción quedó sin operador.
 -- -----------------------------------------------------------------------------
 SELECT
     (SELECT COUNT(*) FROM fact_lotes)                               AS total_lotes,
@@ -65,9 +54,6 @@ JOIN dim_calendario c ON c.fecha_id = l.fecha_id;
 
 -- -----------------------------------------------------------------------------
 -- Q2. PRODUCCIÓN Y PARO por producto y mes.
---     Técnicas: 2 INNER JOIN (producto, calendario) + LEFT JOIN (paro) +
---               GROUP BY + SUM + COUNT + función de fecha DATE_TRUNC.
---     Insight: qué producto concentra producción y cuánto paro arrastra.
 -- -----------------------------------------------------------------------------
 SELECT
     p.codigo                                          AS producto,
@@ -83,8 +69,6 @@ ORDER BY min_paro_total DESC;
 
 -- -----------------------------------------------------------------------------
 -- Q3. DÍAS LABORABLES SIN PRODUCCIÓN.
---     Técnicas: LEFT JOIN dim_calendario ← fact_lotes + IS NULL.
---     Insight: huecos de actividad en días hábiles (capacidad ociosa).
 -- -----------------------------------------------------------------------------
 SELECT c.fecha, c.dia_semana
 FROM dim_calendario c
@@ -95,8 +79,6 @@ ORDER BY c.fecha;
 
 -- -----------------------------------------------------------------------------
 -- Q4. EFICIENCIA POR LOTE + SEMÁFORO.
---     Técnicas: vista v_eficiencia_lote + CASE (lógica condicional).
---     Insight: clasifica cada lote (Óptimo/Aceptable/Crítico) según eficiencia.
 -- -----------------------------------------------------------------------------
 SELECT
     lote_id, fecha, producto, operador,
@@ -109,8 +91,6 @@ ORDER BY eficiencia_pct ASC;
 
 -- -----------------------------------------------------------------------------
 -- Q5. PARETO DE MOTIVOS DE PARO (regla 80/20).
---     Técnicas: CTE + funciones ventana SUM() OVER () y acumulado OVER (ORDER BY).
---     Insight: pocos factores explican la mayor parte del paro → dónde priorizar.
 -- -----------------------------------------------------------------------------
 WITH paros AS (
     SELECT f.descripcion, f.es_error_operador, SUM(p.minutos) AS min_total
@@ -130,11 +110,6 @@ ORDER BY min_total DESC;
 
 -- -----------------------------------------------------------------------------
 -- Q6. MTBF (proxy) — tiempo entre fallos de máquina.
---     Técnicas: CTEs ENCADENADAS + función ventana LAG().
---     Definición: "fallo" = lote con paro de tipo 'Machine failure' (factor 7).
---     CAVEAT: gaps en tiempo de CALENDARIO (incluyen noches/fin de semana sin
---             producción) → MTBF orientativo, no horas de operación netas.
---     Insight: cada cuánto, en promedio, reaparece un fallo de máquina.
 -- -----------------------------------------------------------------------------
 WITH fallos AS (                       -- CTE 1: lotes con fallo de máquina, ordenados
     SELECT DISTINCT l.lote_id, l.hora_inicio
@@ -161,8 +136,6 @@ ORDER BY hora_inicio;
 
 -- -----------------------------------------------------------------------------
 -- Q7. RANKING DE OPERADORES por eficiencia media.
---     Técnicas: función ventana RANK() OVER + AVG + GROUP BY.
---     Insight: quién opera más cerca del tiempo estándar (mejor desempeño).
 -- -----------------------------------------------------------------------------
 SELECT
     operador,
@@ -176,8 +149,6 @@ ORDER BY ranking;
 
 -- -----------------------------------------------------------------------------
 -- Q8. LOTES CON PARO SOBRE LA MEDIA DE SU PRODUCTO.
---     Técnicas: SUBQUERY CORRELACIONADA (referencia al producto de la fila externa).
---     Insight: lotes anómalos respecto a su propia categoría → revisar.
 -- -----------------------------------------------------------------------------
 WITH lp AS (
     SELECT l.lote_id, l.producto_id, COALESCE(SUM(p.minutos), 0) AS min_paro
@@ -197,9 +168,6 @@ ORDER BY producto, lp.min_paro DESC;
 
 -- -----------------------------------------------------------------------------
 -- Q9. TENDENCIA: media móvil de minutos de paro (ventana de 5 lotes).
---     Técnicas: función ventana con frame ROWS BETWEEN 4 PRECEDING AND CURRENT ROW.
---     (Ventana de LOTES, no de días, por la corta duración real del periodo.)
---     Insight: detecta el repunte de paro en los lotes finales (formato 2L).
 -- -----------------------------------------------------------------------------
 WITH paro_por_lote AS (
     SELECT l.lote_id, l.hora_inicio, COALESCE(SUM(p.minutos), 0) AS min_paro
@@ -218,8 +186,6 @@ ORDER BY hora_inicio;
 
 -- -----------------------------------------------------------------------------
 -- Q10. EFICIENCIA NORMALIZADA por operador (índice vs media de la línea).
---      Técnicas: JOIN + CAST (::NUMERIC) + división segura con NULLIF.
---      Insight: índice 100 = media de la línea; >100 mejor, <100 peor.
 -- -----------------------------------------------------------------------------
 WITH ef AS (
     SELECT
@@ -237,7 +203,3 @@ SELECT
 FROM ef
 JOIN dim_operador o ON o.operador_id = ef.operador_id
 ORDER BY indice_vs_media DESC;
-
--- =============================================================================
--- Fin de 03_eda.sql
--- =============================================================================

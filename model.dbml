@@ -1,6 +1,4 @@
 // Proyecto Final SQL — Línea de embotellado (modelo estrella)
-// Fuente del diagrama ER: pegar en https://dbdiagram.io y exportar model.png
-// Convención: fact_* = hechos, dim_* = dimensiones. Los CHECK van como note (DBML no los expresa).
 
 Table dim_calendario {
   fecha_id    int  [pk, note: 'YYYYMMDD']

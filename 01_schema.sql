@@ -1,15 +1,11 @@
 -- =============================================================================
 -- 01_schema.sql — Proyecto Final SQL: Línea de embotellado (modelo estrella)
 -- Motor: PostgreSQL 15
--- Contenido: DDL idempotente (DROP/CREATE), constraints comentadas, índices,
---            2 vistas (1 normal + 1 materializada) y 1 función.
 -- Ejecutar primero. Carga de datos en 02_data.sql; análisis en 03_eda.sql.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- 0. Limpieza idempotente (permite re-ejecutar el script desde cero).
---    Se eliminan primero los objetos derivados (vistas/función) y luego las
---    tablas con CASCADE para arrastrar FKs/dependencias residuales.
+-- 0. Limpieza:
 -- -----------------------------------------------------------------------------
 DROP MATERIALIZED VIEW IF EXISTS v_pareto_paros;
 DROP VIEW IF EXISTS v_eficiencia_lote;
@@ -24,12 +20,10 @@ DROP TABLE IF EXISTS dim_turno       CASCADE;
 DROP TABLE IF EXISTS dim_factor_paro CASCADE;
 
 -- =============================================================================
--- 1. DIMENSIONES
---    Se crean antes que los hechos porque son destino de las FK.
+-- 1. DIMENSIONES:
 -- =============================================================================
 
--- dim_calendario: clave NATURAL fecha_id (YYYYMMDD), convención estándar de Data
--- Warehouse. Se poblará con generate_series en 02_data.sql.
+-- dim_calendario: clave NATURAL fecha_id (YYYYMMDD)
 CREATE TABLE dim_calendario (
     fecha_id     INT         PRIMARY KEY,                 -- PK natural: 20240829
     fecha        DATE        NOT NULL UNIQUE,             -- UNIQUE: una fila por día
@@ -40,9 +34,7 @@ CREATE TABLE dim_calendario (
     es_laborable BOOLEAN     NOT NULL DEFAULT TRUE        -- DEFAULT: la mayoría son laborables
 );
 
--- dim_producto: clave SURROGATE (convención de modelado dimensional). El código
--- de negocio (CO-2L) se conserva como atributo UNIQUE, no como PK, para aislar
--- la fact de posibles recodificaciones del producto.
+-- dim_producto: clave SURROGATE (convención de modelado dimensional).
 CREATE TABLE dim_producto (
     producto_id    INT     GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     codigo         VARCHAR(10) NOT NULL UNIQUE,           -- CO-2L, OR-600...
@@ -53,7 +45,6 @@ CREATE TABLE dim_producto (
 
 -- dim_operador: PK manual (no IDENTITY) porque insertamos el centinela -1
 -- ('SIN_ASIGNAR') para los lotes sin operador logueado (nulos legítimos).
--- especialidad/fecha_ingreso son enriquecimiento propio (sintético, documentado).
 CREATE TABLE dim_operador (
     operador_id   INT         PRIMARY KEY,
     nombre        VARCHAR(50) NOT NULL UNIQUE,
@@ -78,11 +69,10 @@ CREATE TABLE dim_factor_paro (
 );
 
 -- =============================================================================
--- 2. HECHOS
+-- 2. HECHOS:
 -- =============================================================================
 
 -- fact_lotes: granularidad = 1 fila por lote producido.
--- PK NATURAL lote_id = nº de batch (único y estable en el origen).
 CREATE TABLE fact_lotes (
     lote_id      BIGINT    PRIMARY KEY,                              -- nº de batch (ej. 422144)
     fecha_id     INT       NOT NULL REFERENCES dim_calendario(fecha_id),
@@ -96,9 +86,6 @@ CREATE TABLE fact_lotes (
 );
 
 -- fact_paros: granularidad = 1 fila por lote × factor de paro (tras unpivot).
--- PK SURROGATE (un lote tiene varios factores → no hay clave natural simple).
--- FK estricta a fact_lotes: por eso en 02_data.sql se excluyen los lotes
--- huérfanos 422137-422143 (tienen paros pero no existen en productivity).
 CREATE TABLE fact_paros (
     paro_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     lote_id   BIGINT NOT NULL REFERENCES fact_lotes(lote_id),
@@ -107,12 +94,11 @@ CREATE TABLE fact_paros (
 );
 
 -- =============================================================================
--- 3. ÍNDICES (con justificación)
+-- 3. ÍNDICES
 -- =============================================================================
 
 -- Índice principal: el Pareto de paros y las agregaciones por lote unen/agrupan
--- fact_paros por (lote_id, factor_id). Sin él, scan secuencial de la fact grande.
--- Demostrable con EXPLAIN antes/después en la presentación.
+-- fact_paros por (lote_id, factor_id).
 CREATE INDEX idx_paros_lote_factor ON fact_paros (lote_id, factor_id);
 
 -- Índice de apoyo temporal: las consultas de producción por fecha/mes y los
@@ -143,8 +129,7 @@ LEFT JOIN dim_operador o ON o.operador_id = l.operador_id
 LEFT JOIN fact_paros par ON par.lote_id   = l.lote_id
 GROUP BY l.lote_id, c.fecha, p.codigo, o.nombre, l.duracion_min, p.min_batch_time;
 
--- VISTA 2 (MATERIALIZADA): Pareto de motivos de paro. Persiste el resultado
--- (hay que REFRESH tras cargar datos en 02_data.sql). Usa funciones ventana
+-- VISTA 2 (MATERIALIZADA): Pareto de motivos de paro. Usa funciones ventana
 -- para el % individual y el % acumulado (regla 80/20).
 CREATE MATERIALIZED VIEW v_pareto_paros AS
 WITH paros_por_factor AS (                                   -- CTE: minutos por factor
@@ -186,7 +171,3 @@ AS $$
     JOIN dim_calendario c ON c.fecha_id    = l.fecha_id
     WHERE c.fecha BETWEEN desde AND hasta;
 $$;
-
--- =============================================================================
--- Fin de 01_schema.sql
--- =============================================================================
