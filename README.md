@@ -12,7 +12,7 @@ factores/operadores lo explican?*
 
 Dataset público reconocido: **Manufacturing Downtime** (Maven Analytics; espejo en
 [Kaggle/agungpambudi](https://www.kaggle.com/datasets/agungpambudi/predict-manufacturing-downtime-performance-dataset)).
-Línea embotelladora real, **31 lotes**, 29-ago → 03-sep 2024. Los CSV originales están en `dataset/`.
+Línea embotelladora real, **31 lotes**, 29-ago → 03-sep 2024.
 
 El dataset trae **2 fact** y **2 dim**; se **crean 3 dim propias** (`dim_calendario`, `dim_operador`, `dim_turno`),
 documentadas como extensión.
