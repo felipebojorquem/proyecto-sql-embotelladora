@@ -1,6 +1,3 @@
-# Stack dedicado del proyecto final (separado del de clase: BD, puertos y
-# volúmenes propios para no mezclar con course-db).
-
 services:
   db:
     image: postgres:15.3
