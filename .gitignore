@@ -1,0 +1,7 @@
+# Volúmenes de los contenedores (datos locales, no versionar)
+pgdata/
+pgadmin/
+
+# Material interno / del profesor (no publicar)
+GUIA_PROYECTO_FINAL.md
+PROYECTO FINAL.pdf

@@ -1,0 +1,30 @@
+# Stack dedicado del proyecto final (separado del de clase: BD, puertos y
+# volúmenes propios para no mezclar con course-db).
+
+services:
+  db:
+    image: postgres:15.3
+    container_name: proyecto-sql-db
+    restart: always
+    ports:
+      - 5434:5432              # 5434 en host para no chocar con el 5433 de clase
+    environment:
+      - POSTGRES_USER=proyecto
+      - POSTGRES_PASSWORD=proyecto
+      - POSTGRES_DB=embotelladora
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: proyecto-sql-pgadmin
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - 8081:80                # 8081 para no chocar con el 8080 de clase
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=alumno@google.com
+      - PGADMIN_DEFAULT_PASSWORD=proyecto
+    volumes:
+      - ./pgadmin:/var/lib/pgadmin

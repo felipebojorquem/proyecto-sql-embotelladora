@@ -1,0 +1,67 @@
+// Proyecto Final SQL — Línea de embotellado (modelo estrella)
+// Fuente del diagrama ER: pegar en https://dbdiagram.io y exportar model.png
+// Convención: fact_* = hechos, dim_* = dimensiones. Los CHECK van como note (DBML no los expresa).
+
+Table dim_calendario {
+  fecha_id    int  [pk, note: 'YYYYMMDD']
+  fecha       date [not null, unique]
+  dia_semana  varchar
+  semana      int
+  mes         int
+  anio        int
+  es_laborable boolean [not null, default: true]
+}
+
+Table dim_producto {
+  producto_id    int     [pk, increment]    // surrogate
+  codigo         varchar [not null, unique]  // CO-2L, OR-600...
+  sabor          varchar
+  tamano         varchar
+  min_batch_time int     [not null, note: 'CHECK (> 0). Tiempo estándar del lote']
+}
+
+Table dim_operador {
+  operador_id   int     [pk]                // -1 = SIN_ASIGNAR (centinela)
+  nombre        varchar [not null, unique]  // Mac, Charlie, Dee, Dennis
+  especialidad  varchar                     // enriquecido (sintético, documentado)
+  fecha_ingreso date                        // enriquecido (sintético, documentado)
+}
+
+Table dim_turno {
+  turno_id    int     [pk]
+  nombre      varchar [not null]   // Mañana / Tarde / Noche
+  hora_inicio time
+  hora_fin    time
+}
+
+Table dim_factor_paro {
+  factor_id        int     [pk]             // 1..12 (clave natural del CSV)
+  descripcion      varchar [not null]
+  es_error_operador boolean [not null]      // mapea Operator Error (Yes/No)
+}
+
+Table fact_lotes {
+  lote_id      bigint    [pk, note: 'Clave natural: nº de batch (ej. 422144)']
+  fecha_id     int       [not null]
+  producto_id  int       [not null]
+  operador_id  int                           // NULL a propósito (calidad de datos)
+  turno_id     int       [not null]
+  hora_inicio  timestamp [not null]
+  hora_fin     timestamp [not null, note: 'Corregir cruce de medianoche (+1 día si fin < inicio)']
+  duracion_min int       [not null, note: 'CHECK (> 0). Derivada = fin - inicio']
+}
+
+Table fact_paros {
+  paro_id   bigint [pk, increment]           // surrogate
+  lote_id   bigint [not null]
+  factor_id int    [not null]
+  minutos   int    [not null, note: 'CHECK (BETWEEN 0 AND 600)']
+}
+
+// Relaciones (FK)
+Ref: fact_lotes.fecha_id    > dim_calendario.fecha_id
+Ref: fact_lotes.producto_id > dim_producto.producto_id
+Ref: fact_lotes.operador_id > dim_operador.operador_id
+Ref: fact_lotes.turno_id    > dim_turno.turno_id
+Ref: fact_paros.lote_id     > fact_lotes.lote_id
+Ref: fact_paros.factor_id   > dim_factor_paro.factor_id
