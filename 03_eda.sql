@@ -13,12 +13,27 @@ SELECT COUNT(*) AS lotes_sin_operador
 FROM stg_productividad
 WHERE operador_txt IS NULL;
 
--- A2. DUPLICADOS: 
+-- A2. DUPLICADOS (detección):
 SELECT lote_txt, COUNT(*) AS repeticiones
 FROM stg_productividad
 GROUP BY lote_txt
 HAVING COUNT(*) > 1
 ORDER BY lote_txt;
+
+-- A2-fix. DUPLICADOS (corrección con DELETE real): conservamos una fila por lote
+-- (la de menor ctid, identificador físico de cada tupla en PostgreSQL) y borramos
+-- el resto. El modelo de hechos ya se cargó deduplicado vía CTE en 02_data; este
+-- DELETE sanea además el staging crudo. Idempotente: en una 2ª ejecución borra 0.
+DELETE FROM stg_productividad a
+USING  stg_productividad b
+WHERE  a.ctid > b.ctid
+  AND  a.lote_txt = b.lote_txt;
+
+-- Verificación post-corrección: ya no deben quedar duplicados (0 filas).
+SELECT lote_txt, COUNT(*) AS repeticiones
+FROM stg_productividad
+GROUP BY lote_txt
+HAVING COUNT(*) > 1;
 
 -- A3. TIPOS/FECHAS INCORRECTAS: 
 SELECT lote_txt, fin_txt
