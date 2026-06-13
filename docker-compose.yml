@@ -4,7 +4,7 @@ services:
     container_name: proyecto-sql-db
     restart: always
     ports:
-      - 5434:5432              # 5434 en host para no chocar con el 5433 de clase
+      - 5434:5432          
     environment:
       - POSTGRES_USER=proyecto
       - POSTGRES_PASSWORD=proyecto
@@ -19,7 +19,7 @@ services:
     depends_on:
       - db
     ports:
-      - 8081:80                # 8081 para no chocar con el 8080 de clase
+      - 8081:80              
     environment:
       - PGADMIN_DEFAULT_EMAIL=alumno@google.com
       - PGADMIN_DEFAULT_PASSWORD=proyecto
