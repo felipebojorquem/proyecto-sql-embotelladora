@@ -55,6 +55,8 @@ ORDER BY s.lote_txt;
 
 -- -----------------------------------------------------------------------------
 -- Q1. PERFIL DE DATOS del modelo limpio: volumen, rango temporal, % sin operador.
+-- 💡 Insight: dimensiona el dataset y expone qué % de lotes no tiene operador
+--    trazable → riesgo de calidad de datos en el registro de planta.
 -- -----------------------------------------------------------------------------
 SELECT
     (SELECT COUNT(*) FROM fact_lotes)                               AS total_lotes,
@@ -69,6 +71,8 @@ JOIN dim_calendario c ON c.fecha_id = l.fecha_id;
 
 -- -----------------------------------------------------------------------------
 -- Q2. PRODUCCIÓN Y PARO por producto y mes.
+-- 💡 Insight: revela el producto-mes que más minutos de paro acumula → foco
+--    prioritario para mejorar el OEE de la línea.
 -- -----------------------------------------------------------------------------
 SELECT
     p.codigo                                          AS producto,
@@ -84,6 +88,8 @@ ORDER BY min_paro_total DESC;
 
 -- -----------------------------------------------------------------------------
 -- Q3. DÍAS LABORABLES SIN PRODUCCIÓN.
+-- 💡 Insight: días laborables sin ningún lote = capacidad ociosa o huecos de
+--    registro a investigar (paro de planta no documentado).
 -- -----------------------------------------------------------------------------
 SELECT c.fecha, c.dia_semana
 FROM dim_calendario c
@@ -94,6 +100,8 @@ ORDER BY c.fecha;
 
 -- -----------------------------------------------------------------------------
 -- Q4. EFICIENCIA POR LOTE + SEMÁFORO.
+-- 💡 Insight: clasifica cada lote en Óptimo/Aceptable/Crítico; los 'Crítico'
+--    son los candidatos directos a análisis de causa raíz.
 -- -----------------------------------------------------------------------------
 SELECT
     lote_id, fecha, producto, operador,
@@ -106,6 +114,8 @@ ORDER BY eficiencia_pct ASC;
 
 -- -----------------------------------------------------------------------------
 -- Q5. PARETO DE MOTIVOS DE PARO (regla 80/20).
+-- 💡 Insight: pocos motivos concentran la mayoría del paro; atacar los del tramo
+--    acumulado ≤80% es donde está el mayor retorno de mantenimiento.
 -- -----------------------------------------------------------------------------
 WITH paros AS (
     SELECT f.descripcion, f.es_error_operador, SUM(p.minutos) AS min_total
@@ -125,6 +135,8 @@ ORDER BY min_total DESC;
 
 -- -----------------------------------------------------------------------------
 -- Q6. MTBF (proxy) — tiempo entre fallos de máquina.
+-- 💡 Insight: el tiempo medio entre fallos mide la fiabilidad del equipo; gaps
+--    cortos y decrecientes señalan degradación que anticipa avería.
 -- -----------------------------------------------------------------------------
 WITH fallos AS (                       -- CTE 1: lotes con fallo de máquina, ordenados
     SELECT DISTINCT l.lote_id, l.hora_inicio
@@ -151,6 +163,8 @@ ORDER BY hora_inicio;
 
 -- -----------------------------------------------------------------------------
 -- Q7. RANKING DE OPERADORES por eficiencia media.
+-- 💡 Insight: ordena operadores por eficiencia para detectar necesidades de
+--    formación y buenas prácticas del top a replicar en el resto.
 -- -----------------------------------------------------------------------------
 SELECT
     operador,
@@ -164,6 +178,8 @@ ORDER BY ranking;
 
 -- -----------------------------------------------------------------------------
 -- Q8. LOTES CON PARO SOBRE LA MEDIA DE SU PRODUCTO.
+-- 💡 Insight: aísla lotes anómalos comparándolos contra su propio producto
+--    (comparación justa entre formatos 600ml y 2L, con paros distintos).
 -- -----------------------------------------------------------------------------
 WITH lp AS (
     SELECT l.lote_id, l.producto_id, COALESCE(SUM(p.minutos), 0) AS min_paro
@@ -183,6 +199,8 @@ ORDER BY producto, lp.min_paro DESC;
 
 -- -----------------------------------------------------------------------------
 -- Q9. TENDENCIA: media móvil de minutos de paro (ventana de 5 lotes).
+-- 💡 Insight: la media móvil suaviza el ruido lote a lote y revela si el paro
+--    tiende a mejorar o deteriorarse a lo largo del tiempo.
 -- -----------------------------------------------------------------------------
 WITH paro_por_lote AS (
     SELECT l.lote_id, l.hora_inicio, COALESCE(SUM(p.minutos), 0) AS min_paro
@@ -201,6 +219,8 @@ ORDER BY hora_inicio;
 
 -- -----------------------------------------------------------------------------
 -- Q10. EFICIENCIA NORMALIZADA por operador (índice vs media de la línea).
+-- 💡 Insight: índice 100 = media de la línea; >100 operador por encima y <100
+--    por debajo, normalizando el efecto del mix de producto que opera cada uno.
 -- -----------------------------------------------------------------------------
 WITH ef AS (
     SELECT
